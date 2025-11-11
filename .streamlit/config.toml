@@ -1,0 +1,16 @@
+[theme]
+# Główny kolor akcentu - użyty w przyciskach, linkach, sliderach.
+# Użyjemy eleganckiego, stonowanego czerwonego.
+primaryColor = "#B71C1C" 
+
+# Kolor tła aplikacji. Klasyczna, czysta biel.
+backgroundColor = "#FFFFFF"
+
+# Kolor tła dla pasków bocznych i kontenerów. Lekki szary, aby odróżnić sekcje.
+secondaryBackgroundColor = "#F0F2F6"
+
+# Kolor czcionki. Ciemny szary zamiast czarnego, by zmniejszyć kontrast.
+textColor = "#262730"
+
+# Użyj mniejszej czcionki, wygląda profesjonalniej.
+font = "sans serif"

@@ -5,11 +5,15 @@ import requests
 import pandas as pd
 import matplotlib.pyplot as plt
 
-# --- Page settings ---
+# --- Page settings (Must be at the very top) ---
 st.set_page_config(
     page_title="Erythrocyte Analysis App",
-    page_icon="🔬"
+    page_icon="🔬",
+    layout="wide" # Use wide layout for a more professional feel
 )
+
+# Define the new primary color for the abstract border (must match config.toml)
+ACCENT_COLOR = "#B71C1C" 
 
 # --- MOVED SECTION TO THE VERY TOP (TITLE & UPLOAD INSTRUCTIONS) ---
 st.title("🔬 Erythrocyte Analysis App")
@@ -58,18 +62,17 @@ col_abstract, col_button = st.columns([4, 1])
 
 with col_abstract:
     st.markdown(
-        f'<blockquote style="border-left: 5px solid #ff4b4b; padding: 10px; margin: 0 0; text-align: justify;">'
+        # Updated border color to match the new theme accent
+        f'<blockquote style="border-left: 5px solid {ACCENT_COLOR}; padding: 10px; margin: 0 0; text-align: justify;">'
         f'{ABSTRACT_TEXT.strip()}'
         f'</blockquote>',
         unsafe_allow_html=True
     )
 
 with col_button:
-    # Small vertical space for visual alignment
     st.write("")
     st.write("") 
     try:
-        # Download file content
         response = requests.get(PUBLICATION_URL)
         response.raise_for_status()
         pdf_bytes = response.content
@@ -93,7 +96,6 @@ st.markdown("---")
 def get_erythrocyte_shape_factors(image, anomaly_threshold=1.7):
     processed_image = image.copy()
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    # Simple fixed thresholding
     _, thresh = cv2.threshold(gray, 100, 255, cv2.THRESH_BINARY_INV) 
     contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
@@ -101,7 +103,6 @@ def get_erythrocyte_shape_factors(image, anomaly_threshold=1.7):
     anomalies_data = []
 
     for contour in contours:
-        # Check if contour is large enough to fit an ellipse
         if len(contour) > 5: 
             try:
                 ellipse = cv2.fitEllipse(contour)
@@ -113,19 +114,16 @@ def get_erythrocyte_shape_factors(image, anomaly_threshold=1.7):
                     shape_factor = major_axis / minor_axis
                     ellipse_color = (0, 255, 0)  # Green = normal
                     
-                    # Shape classification based on elongation
                     if shape_factor > 1.3 and shape_factor <= 1.5:
                         ellipse_color = (0, 255, 255)  # Yellow = moderately elongated
                     elif shape_factor > 1.5:
                         ellipse_color = (0, 0, 255)  # Red = highly elongated
 
                     if shape_factor <= anomaly_threshold:
-                        # Normal or moderately abnormal cell
                         shape_factors_data.append({
                             "Erythrocyte Number": len(shape_factors_data) + 1,
                             "Shape Factor": shape_factor
                         })
-                        # Draw ellipse and major/minor axes
                         cv2.ellipse(processed_image, ellipse, ellipse_color, 2)
                         angle_rad = np.radians(orientation)
                         
@@ -149,7 +147,6 @@ def get_erythrocyte_shape_factors(image, anomaly_threshold=1.7):
                                     (int(center[0]) + 15, int(center[1])),
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
                     else:
-                        # Anomalous cell (above user-defined threshold)
                         anomalies_data.append({
                             "Erythrocyte Number": len(anomalies_data) + 1,
                             "Shape Factor": shape_factor
@@ -160,21 +157,16 @@ def get_erythrocyte_shape_factors(image, anomaly_threshold=1.7):
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 255), 1)
 
             except cv2.error:
-                # Skip if ellipse fitting fails (e.g., degenerate contour)
                 continue 
 
     return processed_image, shape_factors_data, anomalies_data
 
 
-# --- Streamlit UI ---
-# Note: The main title and upload instructions were moved above the intro section.
-
-# --- Sidebar: image source selection ---
+# --- Sidebar UI (Kept the same for now) ---
 st.sidebar.header("Image Source")
 use_default_image = st.sidebar.checkbox("Use sample image (C.jpg)", value=False)
 uploaded_file = st.sidebar.file_uploader("Or upload your own image", type=["jpg", "jpeg", "png"])
 
-# --- Sidebar: analysis settings ---
 st.sidebar.header("Analysis Settings")
 anomaly_threshold_slider = st.sidebar.slider(
     "Anomaly detection threshold (Shape Factor >)", 
@@ -184,7 +176,6 @@ anomaly_threshold_slider = st.sidebar.slider(
     step=0.05
 )
 
-# --- Run button ---
 run_button = st.sidebar.button("▶ Run Analysis")
 
 # --- Main logic ---
@@ -211,39 +202,78 @@ if run_button:
         processed_img, shape_factors, anomalies = get_erythrocyte_shape_factors(image_to_process, anomaly_threshold_slider)
 
         st.subheader("📊 Analysis Results")
-        st.image(processed_img, channels="BGR", caption="Processed Erythrocytes")
 
         df_normal = pd.DataFrame(shape_factors)
         df_anomalies = pd.DataFrame(anomalies)
 
         if not df_normal.empty or not df_anomalies.empty:
-            if not df_normal.empty:
-                avg = df_normal['Shape Factor'].mean()
-                med = df_normal['Shape Factor'].median()
-                std = df_normal['Shape Factor'].std()
-                st.markdown("---")
-                st.subheader("📈 Descriptive Statistics (Normal Cells)")
-                st.info(f"**Average:** {avg:.2f}\n\n**Median:** {med:.2f}\n\n**Standard Deviation:** {std:.2f}")
+            
+            # --- START: VISUAL IMPROVEMENT (Metrics and Image side-by-side) ---
+            
+            col_img, col_metrics = st.columns([3, 2]) # Wide layout for better visual separation
+
+            with col_img:
+                st.markdown("##### Processed Image")
+                st.image(processed_img, channels="BGR")
+
+            with col_metrics:
+                if not df_normal.empty:
+                    avg = df_normal['Shape Factor'].mean()
+                    med = df_normal['Shape Factor'].median()
+                    std = df_normal['Shape Factor'].std()
+                    
+                    st.markdown("##### Key Statistics (Normal Cells)")
+                    
+                    # Use st.metric for clear key figures
+                    col_met1, col_met2 = st.columns(2)
+                    
+                    with col_met1:
+                        st.metric(label="Average Shape Factor", value=f"{avg:.2f}", help="Mean ratio of major axis to minor axis.")
+                    
+                    with col_met2:
+                        st.metric(label="Median Shape Factor", value=f"{med:.2f}", help="Middle value of the distribution.")
+                        
+                    st.metric(label="Std. Deviation", value=f"{std:.2f}", help="Spread of the Shape Factor data.")
+                    st.metric(label="Total Cells Analyzed", value=len(shape_factors) + len(anomalies))
+                else:
+                    st.info("No normal cells detected below the threshold.")
+
+            st.markdown("---")
+            # --- END: VISUAL IMPROVEMENT ---
 
             # --- Histogram ---
-            st.markdown("---")
             st.subheader("📊 Shape Factor Distribution")
-            fig, ax = plt.subplots(figsize=(8, 6))
+            fig, ax = plt.subplots(figsize=(10, 6)) # Increased figure size for wide layout
             if not df_normal.empty:
-                ax.hist(df_normal['Shape Factor'], bins=15, alpha=0.6, color='b', edgecolor='black', label='Normal')
+                ax.hist(df_normal['Shape Factor'], bins=15, alpha=0.7, color='#1f77b4', edgecolor='black', label='Normal (SF <= Threshold)')
             if not df_anomalies.empty:
-                ax.hist(df_anomalies['Shape Factor'], bins=15, alpha=0.6, color='m', edgecolor='black', label='Anomaly')
+                ax.hist(df_anomalies['Shape Factor'], bins=15, alpha=0.7, color=ACCENT_COLOR, edgecolor='black', label='Anomaly (SF > Threshold)')
+            
+            ax.axvline(x=anomaly_threshold_slider, color='r', linestyle='--', label=f'Threshold ({anomaly_threshold_slider:.2f})')
+            
             ax.legend()
-            ax.set_xlabel('Shape Factor')
+            ax.set_xlabel('Shape Factor (Major Axis / Minor Axis)')
             ax.set_ylabel('Frequency')
+            ax.set_title('Distribution of Erythrocyte Shape Factors')
+            ax.grid(axis='y', alpha=0.5)
             st.pyplot(fig)
 
             # --- Results Table ---
             st.markdown("---")
-            st.subheader("📋 Results Table")
-            st.dataframe(pd.concat([df_normal, df_anomalies], ignore_index=True))
+            st.subheader("📋 Detailed Results Table")
+            # Rename columns for better readability
+            df_full = pd.concat([df_normal, df_anomalies], ignore_index=True)
+            df_full.rename(columns={
+                "Erythrocyte Number": "Cell ID",
+                "Shape Factor": "SF (Major/Minor)"
+            }, inplace=True)
+            
+            # Add a classification column
+            df_full['Classification'] = np.where(df_full['SF (Major/Minor)'] > anomaly_threshold_slider, 'Anomaly (SF > Threshold)', 'Normal/Moderate')
+
+            st.dataframe(df_full, use_container_width=True)
         else:
-            st.warning("⚠️ No erythrocytes detected.")
+            st.warning("⚠️ No erythrocytes detected in the image based on contour analysis.")
 
     else:
         st.warning("⚠️ Please upload a file or select the sample image option.")
