@@ -4,7 +4,7 @@ import numpy as np
 import requests
 import pandas as pd
 import matplotlib.pyplot as plt
-import io # Added for in-memory Excel/CSV conversion handling
+import io 
 
 # --- Page settings (Must be at the very top) ---
 st.set_page_config(
@@ -381,7 +381,6 @@ if run_button:
             # BINARY MASK VIEW WILL BE DISPLAYED BELOW BOTH COLUMNS, FULL WIDTH
             st.markdown("##### Binary Mask (Detection Base)")
             # The binary mask is grayscale, Streamlit needs to know how to render it
-            # FIXED: Changed use_column_width=True to use_container_width=True
             st.image(binary_mask, channels="GRAY", use_container_width=True) 
 
             st.markdown("---")
@@ -571,26 +570,38 @@ if run_button:
             # --- END: DOWNLOAD BUTTONS ---
             
             
-            # --- START: ABOUT ME SECTION (New) ---
+            # --- START: ABOUT ME SECTION (New with Image) ---
             st.markdown("---")
             st.subheader("🧑‍💻 About Me / Author")
-            st.markdown(
-                """
-                <p style="text-align: justify;">
-                This application was developed as a tool for quantitative analysis of red blood cell (erythrocyte) morphology 
-                based on image processing methods (OpenCV). 
-                The underlying methodology is inspired by research on the effect of various compounds 
-                on erythrocyte deformation, a key indicator of cell health and blood conditions. 
-                </p>
+
+            # Raw URL for direct embedding
+            IMAGE_URL = "https://raw.githubusercontent.com/slastrzelec/01_erytro/main/dowo%CC%81d.jpg"
+            
+            # Create columns for image and text
+            col_photo, col_bio = st.columns([1, 4])
+            
+            with col_photo:
+                # Display the image. Setting width ensures it fits nicely next to the text.
+                st.image(IMAGE_URL, caption="Sławomir Strzelec", width=150)
                 
-                **Contact / Source Code:**
-                - **GitHub:** [slastrzelec/01_erytro](https://github.com/slastrzelec/01_erytro) 
-                - **LinkedIn:** [Sławomir Strzelec](https://www.linkedin.com/in/s%C5%82awomir-strzelec-b32794169/)
-                <br>
-                **Disclaimer:** This is a scientific research and demonstration tool, not a medical diagnostic device.
-                """,
-                unsafe_allow_html=True
-            )
+            with col_bio:
+                st.markdown(
+                    """
+                    <p style="text-align: justify;">
+                    This application was developed as a tool for quantitative analysis of red blood cell (erythrocyte) morphology 
+                    based on image processing methods (OpenCV). 
+                    The underlying methodology is inspired by research on the effect of various compounds 
+                    on erythrocyte deformation, a key indicator of cell health and blood conditions. 
+                    </p>
+                    
+                    **Contact / Source Code:**
+                    - **GitHub:** [slastrzelec/01_erytro](https://github.com/slastrzelec/01_erytro) 
+                    - **LinkedIn:** [Sławomir Strzelec](https://www.linkedin.com/in/s%C5%82awomir-strzelec-b32794169/)
+                    <br>
+                    **Disclaimer:** This is a scientific research and demonstration tool, not a medical diagnostic device.
+                    """,
+                    unsafe_allow_html=True
+                )
             # --- END: ABOUT ME SECTION ---
 
 
