@@ -12,7 +12,7 @@ st.set_page_config(
     layout="wide" # Use wide layout for professional look
 )
 
-# Variable for consistent accent color
+# Zmienna do spójnego koloru akcentu (dla config.toml lub ręcznego ustawienia)
 ACCENT_COLOR = "#B71C1C" 
 
 # --- TITLE & UPLOAD INSTRUCTIONS ---
@@ -195,7 +195,7 @@ uploaded_file = st.sidebar.file_uploader("Or upload your own image", type=["jpg"
 # --- Sidebar: analysis settings ---
 st.sidebar.header("Analysis Settings")
 
-# 1. SLIDER FOR MINIMUM SIZE (NEW)
+# 1. SLIDER FOR MINIMUM SIZE
 min_axis_size_slider = st.sidebar.slider(
     "Min. Axis Size (px) to filter artifacts", 
     min_value=10, 
@@ -204,6 +204,26 @@ min_axis_size_slider = st.sidebar.slider(
     step=5,
     help="Minimum required length of the major and minor axes to consider a contour an erythrocyte (e.g., 50px)."
 )
+
+# 2. INPUT FOR CALIBRATION FACTOR (NOWOŚĆ)
+calibration_factor = st.sidebar.number_input(
+    "Calibration Factor (µm per pixel)",
+    min_value=0.0, 
+    max_value=10.0,
+    value=0.0, 
+    step=0.01,
+    # Usunięto argument 'help'
+)
+
+# DODANY TEKST POD INPUTEM
+st.sidebar.markdown(
+    """
+    <small>Wprowadź współczynnik konwersji: 1 piksel = X mikrometrów (µm). 
+    Jeśli skala jest nieznana, pozostaw wartość **0.0**, aby użyć jednostek pikselowych (px).</small>
+    """,
+    unsafe_allow_html=True
+)
+
 
 anomaly_threshold_slider = st.sidebar.slider(
     "Anomaly detection threshold (Shape Factor >)", 
@@ -242,10 +262,29 @@ if run_button:
             image_to_process, anomaly_threshold_slider, min_axis_size_slider
         )
 
-        st.subheader("📊 Analysis Results")
-
+        # OBLICZENIA KALIBRACJI
+        def apply_calibration(df, factor):
+            # Jeśli współczynnik kalibracji wynosi 0, nie dodajemy kolumn mikrometrycznych.
+            if df.empty or factor == 0.0:
+                return df
+            
+            # Przeliczanie długości (Axis, Perimeter)
+            df['Major Axis (µm)'] = df['Major Axis'] * factor
+            df['Minor Axis (µm)'] = df['Minor Axis'] * factor
+            df['Perimeter (µm)'] = df['Perimeter'] * factor
+            
+            # Przeliczanie powierzchni (Area) - Kwadrat współczynnika
+            df['Area (µm²)'] = df['Area'] * (factor ** 2)
+            
+            return df
+        
         df_normal = pd.DataFrame(shape_factors)
         df_anomalies = pd.DataFrame(anomalies)
+
+        # Kalibracja jest aplikowana tylko jeśli factor > 0.0
+        df_normal = apply_calibration(df_normal, calibration_factor)
+        df_anomalies = apply_calibration(df_anomalies, calibration_factor)
+        
         
         # Creating DF for full table and visualization
         df_full = pd.concat([df_normal, df_anomalies], ignore_index=True)
@@ -268,17 +307,26 @@ if run_button:
                 if not df_normal.empty:
                     # Shape Factor and Ellipticity Metrics
                     avg_sf = df_normal['Shape Factor'].mean()
-                    med_sf = df_normal['Shape Factor'].median()
                     avg_ellipticity = df_normal['Ellipticity'].mean() 
-                    
-                    # Axis Length and Shape Metrics
-                    avg_major_axis = df_normal['Major Axis'].mean()
-                    avg_minor_axis = df_normal['Minor Axis'].mean()
-                    avg_area = df_normal['Area'].mean()
-                    avg_perimeter = df_normal['Perimeter'].mean()
                     std_sf = df_normal['Shape Factor'].std()
 
-                    
+                    # Ustawienie jednostek
+                    if calibration_factor > 0.0 and 'Area (µm²)' in df_normal.columns:
+                        avg_major_um = df_normal['Major Axis (µm)'].mean()
+                        avg_area_um2 = df_normal['Area (µm²)'].mean()
+                        major_label = "Avg Major Axis (µm)"
+                        area_label = "Avg Area (µm²)"
+                        major_value = f"{avg_major_um:.2f}"
+                        area_value = f"{avg_area_um2:,.2f}"
+                    else:
+                        avg_major_px = df_normal['Major Axis'].mean()
+                        avg_area_px2 = df_normal['Area'].mean()
+                        major_label = "Avg Major Axis (px)"
+                        area_label = "Avg Area (px²)"
+                        major_value = f"{avg_major_px:.2f}"
+                        area_value = f"{avg_area_px2:,.2f}"
+                        
+
                     st.markdown("##### Key Statistics (Normal Cells)")
                     
                     # Shape Factor and Ellipticity Metrics
@@ -290,15 +338,11 @@ if run_button:
                     with col_met2:
                         st.metric(label="Average Ellipticity", value=f"{avg_ellipticity:.2f}", help="Mean ellipticity (1 - Minor/Major Axis).")
                     
-                    # Axis Length Metrics
+                    # Size Metrics (Now dynamic based on calibration_factor)
                     st.markdown("---") 
-                    st.metric(label="Avg Major Axis (px)", value=f"{avg_major_axis:.2f}", help="Mean length of the major semi-axis (in pixels).")
-                    st.metric(label="Avg Minor Axis (px)", value=f"{avg_minor_axis:.2f}", help="Mean length of the minor semi-axis (in pixels).")
+                    st.metric(label=major_label, value=major_value, help="Mean length of the major semi-axis.")
                     
-                    # Area and Perimeter Metrics
-                    st.markdown("---")
-                    st.metric(label="Avg Area (px²)", value=f"{avg_area:,.0f}", help="Mean cell area (in square pixels).")
-                    st.metric(label="Avg Perimeter (px)", value=f"{avg_perimeter:.2f}", help="Mean cell contour perimeter (in pixels).")
+                    st.metric(label=area_label, value=area_value, help="Mean cell area.")
                         
                     st.metric(label="Std. Deviation (SF)", value=f"{std_sf:.2f}", help="Standard deviation for the Shape Factor.")
                     st.metric(label="Total Cells Analyzed", value=len(shape_factors) + len(anomalies))
@@ -308,18 +352,30 @@ if run_button:
             st.markdown("---")
             # --- END: VISUAL IMPROVEMENT ---
 
-            # --- Charts Section ---
-            
-            # Scatter Plot for correlation
+            # Zmienne dla wykresów, które uwzględniają jednostki µm
+            if calibration_factor > 0.0 and 'Area (µm²)' in df_full.columns:
+                area_col_name = 'Area (µm²)'
+                major_axis_col_name = 'Major Axis (µm)'
+                perimeter_col_name = 'Perimeter (µm)'
+                area_unit = 'µm²'
+                length_unit = 'µm'
+            else:
+                # Użycie pikseli, jeśli kalibracja wynosi 0 lub jest wyłączona
+                area_col_name = 'Area'
+                major_axis_col_name = 'Major Axis'
+                perimeter_col_name = 'Perimeter'
+                area_unit = 'px²'
+                length_unit = 'px'
+
+
+            # --- Scatter Plot for correlation ---
             st.subheader("🔬 Correlation Scatter Plot: Shape Factor vs. Area")
-            # Using df_full to visualize both populations (Normal and Anomaly)
             fig_scatter, ax_scatter = plt.subplots(figsize=(10, 6))
             
-            # Map classification to colors
             color_map = {'Normal/Moderate': '#1f77b4', 'Anomaly': ACCENT_COLOR}
             
             for name, group in df_full.groupby('Classification'):
-                ax_scatter.scatter(group['Area'], group['Shape Factor'], 
+                ax_scatter.scatter(group[area_col_name], group['Shape Factor'], 
                                    label=name, 
                                    color=color_map[name], 
                                    alpha=0.6, 
@@ -329,7 +385,7 @@ if run_button:
             ax_scatter.axhline(y=anomaly_threshold_slider, color='r', linestyle='--', label=f'SF Threshold ({anomaly_threshold_slider:.2f})')
             
             ax_scatter.legend(title='Classification')
-            ax_scatter.set_xlabel('Area (px²)')
+            ax_scatter.set_xlabel(f'Area ({area_unit})')
             ax_scatter.set_ylabel('Shape Factor (SF)')
             ax_scatter.set_title('Shape Factor vs. Area by Classification')
             ax_scatter.grid(True, linestyle=':', alpha=0.6)
@@ -345,7 +401,7 @@ if run_button:
             if not df_anomalies.empty:
                 ax_sf.hist(df_anomalies['Shape Factor'], bins=15, alpha=0.7, color=ACCENT_COLOR, edgecolor='black', label='Anomaly (SF > Threshold)')
             
-            ax_sf.axvline(x=anomaly_threshold_slider, color='r', linestyle='--', label=f'Threshold ({anomaly_threshold_slider:.2f})')
+            ax_sf.axvline(x=anomaly_threshold_slider, color='r', linestyle='--', label=f'Threshold ({anomaly_threshold_slider:.2f}')
             
             ax_sf.legend()
             ax_sf.set_xlabel('Shape Factor (Major Axis / Minor Axis)')
@@ -356,54 +412,84 @@ if run_button:
             
             # --- Area Histogram ---
             st.markdown("---")
-            st.subheader("📐 Area Distribution (Cell Area)")
+            st.subheader(f"📐 Area Distribution (Cell Area - {area_unit})")
             fig_area, ax_area = plt.subplots(figsize=(10, 6))
             
             if not df_full.empty:
-                 # Drawing histogram for all cells, using df_full for a complete picture
-                ax_area.hist(df_full[df_full['Classification'] == 'Normal/Moderate']['Area'], bins=20, alpha=0.7, color='#2ca02c', edgecolor='black', label='Normal/Moderate')
-                ax_area.hist(df_full[df_full['Classification'] == 'Anomaly']['Area'], bins=20, alpha=0.7, color=ACCENT_COLOR, edgecolor='black', label='Anomaly')
+                ax_area.hist(df_full[df_full['Classification'] == 'Normal/Moderate'][area_col_name], bins=20, alpha=0.7, color='#2ca02c', edgecolor='black', label='Normal/Moderate')
+                ax_area.hist(df_full[df_full['Classification'] == 'Anomaly'][area_col_name], bins=20, alpha=0.7, color=ACCENT_COLOR, edgecolor='black', label='Anomaly')
             
             ax_area.legend()
-            ax_area.set_xlabel('Area (px²)')
+            ax_area.set_xlabel(f'Area ({area_unit})')
             ax_area.set_ylabel('Frequency')
-            ax_area.set_title('Distribution of Erythrocyte Area')
+            ax_area.set_title(f'Distribution of Erythrocyte Area ({area_unit})')
             ax_area.grid(axis='y', alpha=0.5)
             st.pyplot(fig_area)
 
             # --- Perimeter Histogram ---
             st.markdown("---")
-            st.subheader("🔗 Perimeter Distribution (Contour Perimeter)")
+            st.subheader(f"🔗 Perimeter Distribution (Contour Perimeter - {length_unit})")
             fig_perim, ax_perim = plt.subplots(figsize=(10, 6))
             
             if not df_full.empty:
-                ax_perim.hist(df_full[df_full['Classification'] == 'Normal/Moderate']['Perimeter'], bins=20, alpha=0.7, color='#ff7f0e', edgecolor='black', label='Normal/Moderate')
-                ax_perim.hist(df_full[df_full['Classification'] == 'Anomaly']['Perimeter'], bins=20, alpha=0.7, color=ACCENT_COLOR, edgecolor='black', label='Anomaly')
+                ax_perim.hist(df_full[df_full['Classification'] == 'Normal/Moderate'][perimeter_col_name], bins=20, alpha=0.7, color='#ff7f0e', edgecolor='black', label='Normal/Moderate')
+                ax_perim.hist(df_full[df_full['Classification'] == 'Anomaly'][perimeter_col_name], bins=20, alpha=0.7, color=ACCENT_COLOR, edgecolor='black', label='Anomaly')
             
             ax_perim.legend()
-            ax_perim.set_xlabel('Perimeter (px)')
+            ax_perim.set_xlabel(f'Perimeter ({length_unit})')
             ax_perim.set_ylabel('Frequency')
-            ax_perim.set_title('Distribution of Erythrocyte Perimeter')
+            ax_perim.set_title(f'Distribution of Erythrocyte Perimeter ({length_unit})')
             ax_perim.grid(axis='y', alpha=0.5)
             st.pyplot(fig_perim)
 
 
-            # --- Results Table (Updated with Ellipticity) ---
+            # --- Results Table (Updated with Micrometer units) ---
             st.markdown("---")
             st.subheader("📋 Detailed Results Table")
-            # Renaming columns for better readability
-            df_full.rename(columns={
+            
+            # Tworzenie mapowania kolumn do wyświetlenia
+            column_mapping = {
                 "Erythrocyte Number": "Cell ID",
                 "Shape Factor": "SF (Major/Minor)",
                 "Ellipticity": "Ellipticity",
-                "Major Axis": "Major Axis (px)",
-                "Minor Axis": "Minor Axis (px)",
-                "Area": "Area (px²)",
-                "Perimeter": "Perimeter (px)"
-            }, inplace=True)
+                "Classification": "Classification"
+            }
             
-            # The Classification column already has the correct label
-            st.dataframe(df_full, use_container_width=True)
+            # Dodanie kolumn pikselowych i mikrometrycznych w zależności od dostępności (czyli calibration_factor > 0.0)
+            if calibration_factor > 0.0 and 'Major Axis (µm)' in df_full.columns:
+                column_mapping.update({
+                    'Major Axis (µm)': 'Major Axis (µm)',
+                    'Minor Axis (µm)': 'Minor Axis (µm)',
+                    'Area (µm²)': 'Area (µm²)',
+                    'Perimeter (µm)': 'Perimeter (µm)',
+                    'Major Axis': 'Major Axis (px)', # Zachowujemy też wartości w px
+                    'Minor Axis': 'Minor Axis (px)',
+                    'Area': 'Area (px²)',
+                    'Perimeter': 'Perimeter (px)'
+                })
+            else:
+                # Jeśli kalibracja wyłączona, pokazujemy tylko wartości w pikselach
+                column_mapping.update({
+                    'Major Axis': 'Major Axis (px)',
+                    'Minor Axis': 'Minor Axis (px)',
+                    'Area': 'Area (px²)',
+                    'Perimeter': 'Perimeter (px)'
+                })
+            
+            # Zmiana nazw kolumn i wybór odpowiedniej kolejności do wyświetlenia
+            df_display = df_full.rename(columns=column_mapping)
+            
+            # Definicja kolejności kolumn (priorytet dla µm, jeśli są dostępne)
+            ordered_columns = [
+                'Cell ID', 'Classification', 'SF (Major/Minor)', 'Ellipticity',
+                'Major Axis (µm)', 'Minor Axis (µm)', 'Area (µm²)', 'Perimeter (µm)',
+                'Major Axis (px)', 'Minor Axis (px)', 'Area (px²)', 'Perimeter (px)'
+            ]
+            
+            # Filtrowanie kolumn, które faktycznie istnieją po kalibracji/bez niej
+            cols_to_show = [col for col in ordered_columns if col in df_display.columns]
+
+            st.dataframe(df_display[cols_to_show], use_container_width=True)
         else:
             st.warning("⚠️ No erythrocytes detected in the image based on contour analysis (check minimal axis size setting).")
 
