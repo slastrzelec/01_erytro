@@ -9,10 +9,10 @@ import matplotlib.pyplot as plt
 st.set_page_config(
     page_title="Erythrocyte Analysis App",
     page_icon="🔬",
-    layout="wide" # Use wide layout for a more professional feel
+    layout="wide" # Użycie szerokiego układu dla profesjonalnego wyglądu
 )
 
-# Define the new primary color for the abstract border (must match config.toml)
+# Zmienna do spójnego koloru akcentu (dla config.toml lub ręcznego ustawienia)
 ACCENT_COLOR = "#B71C1C" 
 
 # --- MOVED SECTION TO THE VERY TOP (TITLE & UPLOAD INSTRUCTIONS) ---
@@ -57,12 +57,12 @@ ABSTRACT_TEXT = """
 
 st.subheader("Want to Know More? Check Out My Publication 📖")
 
-# Use columns: first for the abstract, second (smaller) for the button
+# Użycie kolumn: pierwsza na abstrakt, druga (mniejsza) na przycisk
 col_abstract, col_button = st.columns([4, 1])
 
 with col_abstract:
+    # Użycie koloru akcentu
     st.markdown(
-        # Updated border color to match the new theme accent
         f'<blockquote style="border-left: 5px solid {ACCENT_COLOR}; padding: 10px; margin: 0 0; text-align: justify;">'
         f'{ABSTRACT_TEXT.strip()}'
         f'</blockquote>',
@@ -92,7 +92,7 @@ st.markdown("---")
 # --- END COMBINED SECTION ---
 
 
-# --- Core function: erythrocyte shape analysis ---
+# --- Core function: erythrocyte shape analysis (Zaktualizowana do zapisu pólosi) ---
 def get_erythrocyte_shape_factors(image, anomaly_threshold=1.7):
     processed_image = image.copy()
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -101,14 +101,22 @@ def get_erythrocyte_shape_factors(image, anomaly_threshold=1.7):
 
     shape_factors_data = []
     anomalies_data = []
+    
+    # Stała minimalnego rozmiaru
+    MIN_AXIS_SIZE = 50 
 
     for contour in contours:
         if len(contour) > 5: 
             try:
                 ellipse = cv2.fitEllipse(contour)
                 (center, axes, orientation) = ellipse
+                # Minor i Major axis są teraz przechowywane
                 minor_axis = min(axes)
                 major_axis = max(axes)
+                
+                # NOWY WARUNEK: Pomijamy kontur, jeśli któraś z osi jest mniejsza niż MIN_AXIS_SIZE
+                if major_axis < MIN_AXIS_SIZE or minor_axis < MIN_AXIS_SIZE:
+                    continue
                 
                 if minor_axis > 0:
                     shape_factor = major_axis / minor_axis
@@ -120,21 +128,23 @@ def get_erythrocyte_shape_factors(image, anomaly_threshold=1.7):
                         ellipse_color = (0, 0, 255)  # Red = highly elongated
 
                     if shape_factor <= anomaly_threshold:
+                        # Zapisujemy długości półosi
                         shape_factors_data.append({
                             "Erythrocyte Number": len(shape_factors_data) + 1,
-                            "Shape Factor": shape_factor
+                            "Shape Factor": shape_factor,
+                            "Major Axis": major_axis,
+                            "Minor Axis": minor_axis
                         })
                         cv2.ellipse(processed_image, ellipse, ellipse_color, 2)
                         angle_rad = np.radians(orientation)
                         
-                        # Draw Major Axis (Red)
+                        # Rysowanie Osie (Major/Minor)
                         major_end_point_1 = (int(center[0] + major_axis/2 * np.cos(angle_rad)),
                                              int(center[1] + major_axis/2 * np.sin(angle_rad)))
                         major_end_point_2 = (int(center[0] - major_axis/2 * np.cos(angle_rad)),
                                              int(center[1] - major_axis/2 * np.sin(angle_rad)))
                         cv2.line(processed_image, major_end_point_1, major_end_point_2, (0, 0, 255), 1)
                         
-                        # Draw Minor Axis (Blue)
                         minor_angle_rad = np.radians(orientation + 90)
                         minor_end_point_1 = (int(center[0] + minor_axis/2 * np.cos(minor_angle_rad)),
                                              int(center[1] + minor_axis/2 * np.sin(minor_angle_rad)))
@@ -142,16 +152,19 @@ def get_erythrocyte_shape_factors(image, anomaly_threshold=1.7):
                                              int(center[1] - minor_axis/2 * np.sin(minor_angle_rad)))
                         cv2.line(processed_image, minor_end_point_1, minor_end_point_2, (255, 0, 0), 1)
                         
-                        # Label the cell
+                        # Etykietowanie komórki
                         cv2.putText(processed_image, str(len(shape_factors_data)),
                                     (int(center[0]) + 15, int(center[1])),
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
                     else:
+                        # Zapisujemy długości półosi dla anomalii
                         anomalies_data.append({
                             "Erythrocyte Number": len(anomalies_data) + 1,
-                            "Shape Factor": shape_factor
+                            "Shape Factor": shape_factor,
+                            "Major Axis": major_axis,
+                            "Minor Axis": minor_axis
                         })
-                        cv2.ellipse(processed_image, ellipse, (255, 0, 255), 2) # Magenta color for anomaly
+                        cv2.ellipse(processed_image, ellipse, (255, 0, 255), 2) # Kolor Magenta dla anomalii
                         cv2.putText(processed_image, f"A{len(anomalies_data)}",
                                     (int(center[0]) + 15, int(center[1])),
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 255), 1)
@@ -162,11 +175,14 @@ def get_erythrocyte_shape_factors(image, anomaly_threshold=1.7):
     return processed_image, shape_factors_data, anomalies_data
 
 
-# --- Sidebar UI (Kept the same for now) ---
+# --- Streamlit UI ---
+
+# --- Sidebar: image source selection ---
 st.sidebar.header("Image Source")
 use_default_image = st.sidebar.checkbox("Use sample image (C.jpg)", value=False)
 uploaded_file = st.sidebar.file_uploader("Or upload your own image", type=["jpg", "jpeg", "png"])
 
+# --- Sidebar: analysis settings ---
 st.sidebar.header("Analysis Settings")
 anomaly_threshold_slider = st.sidebar.slider(
     "Anomaly detection threshold (Shape Factor >)", 
@@ -176,6 +192,7 @@ anomaly_threshold_slider = st.sidebar.slider(
     step=0.05
 )
 
+# --- Run button ---
 run_button = st.sidebar.button("▶ Run Analysis")
 
 # --- Main logic ---
@@ -210,7 +227,7 @@ if run_button:
             
             # --- START: VISUAL IMPROVEMENT (Metrics and Image side-by-side) ---
             
-            col_img, col_metrics = st.columns([3, 2]) # Wide layout for better visual separation
+            col_img, col_metrics = st.columns([3, 2]) # Szeroki układ dla lepszej wizualnej separacji
 
             with col_img:
                 st.markdown("##### Processed Image")
@@ -218,22 +235,31 @@ if run_button:
 
             with col_metrics:
                 if not df_normal.empty:
-                    avg = df_normal['Shape Factor'].mean()
-                    med = df_normal['Shape Factor'].median()
-                    std = df_normal['Shape Factor'].std()
+                    avg_sf = df_normal['Shape Factor'].mean()
+                    med_sf = df_normal['Shape Factor'].median()
+                    std_sf = df_normal['Shape Factor'].std()
+                    
+                    # OBLICZENIA DŁUGOŚCI PÓŁOSI
+                    avg_major_axis = df_normal['Major Axis'].mean()
+                    avg_minor_axis = df_normal['Minor Axis'].mean()
                     
                     st.markdown("##### Key Statistics (Normal Cells)")
                     
-                    # Use st.metric for clear key figures
+                    # Stara Metryka - Rozkład w 2 kolumnach
                     col_met1, col_met2 = st.columns(2)
                     
                     with col_met1:
-                        st.metric(label="Average Shape Factor", value=f"{avg:.2f}", help="Mean ratio of major axis to minor axis.")
+                        st.metric(label="Average Shape Factor", value=f"{avg_sf:.2f}", help="Średnia proporcja głównej osi do mniejszej osi.")
                     
                     with col_met2:
-                        st.metric(label="Median Shape Factor", value=f"{med:.2f}", help="Middle value of the distribution.")
+                        st.metric(label="Median Shape Factor", value=f"{med_sf:.2f}", help="Mediana rozkładu.")
+                    
+                    # NOWE Metryki - Średnia długość półosi
+                    st.markdown("---") 
+                    st.metric(label="Avg Major Axis (px)", value=f"{avg_major_axis:.2f}", help="Średnia długość dużej półosi (w pikselach).")
+                    st.metric(label="Avg Minor Axis (px)", value=f"{avg_minor_axis:.2f}", help="Średnia długość małej półosi (w pikselach).")
                         
-                    st.metric(label="Std. Deviation", value=f"{std:.2f}", help="Spread of the Shape Factor data.")
+                    st.metric(label="Std. Deviation (SF)", value=f"{std_sf:.2f}", help="Odchylenie standardowe dla Shape Factor.")
                     st.metric(label="Total Cells Analyzed", value=len(shape_factors) + len(anomalies))
                 else:
                     st.info("No normal cells detected below the threshold.")
@@ -243,7 +269,7 @@ if run_button:
 
             # --- Histogram ---
             st.subheader("📊 Shape Factor Distribution")
-            fig, ax = plt.subplots(figsize=(10, 6)) # Increased figure size for wide layout
+            fig, ax = plt.subplots(figsize=(10, 6)) # Zwiększony rozmiar figury dla szerokiego układu
             if not df_normal.empty:
                 ax.hist(df_normal['Shape Factor'], bins=15, alpha=0.7, color='#1f77b4', edgecolor='black', label='Normal (SF <= Threshold)')
             if not df_anomalies.empty:
@@ -258,17 +284,19 @@ if run_button:
             ax.grid(axis='y', alpha=0.5)
             st.pyplot(fig)
 
-            # --- Results Table ---
+            # --- Results Table (Zaktualizowana do wyświetlania długości pólosi) ---
             st.markdown("---")
             st.subheader("📋 Detailed Results Table")
-            # Rename columns for better readability
+            # Zmiana nazw kolumn dla lepszej czytelności
             df_full = pd.concat([df_normal, df_anomalies], ignore_index=True)
             df_full.rename(columns={
                 "Erythrocyte Number": "Cell ID",
-                "Shape Factor": "SF (Major/Minor)"
+                "Shape Factor": "SF (Major/Minor)",
+                "Major Axis": "Major Axis (px)",
+                "Minor Axis": "Minor Axis (px)"
             }, inplace=True)
             
-            # Add a classification column
+            # Dodanie kolumny klasyfikacji
             df_full['Classification'] = np.where(df_full['SF (Major/Minor)'] > anomaly_threshold_slider, 'Anomaly (SF > Threshold)', 'Normal/Moderate')
 
             st.dataframe(df_full, use_container_width=True)
