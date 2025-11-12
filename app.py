@@ -4,6 +4,7 @@ import numpy as np
 import requests
 import pandas as pd
 import matplotlib.pyplot as plt
+import io # Dodano dla obsługi konwersji do Excel/CSV w pamięci
 
 # --- Page settings (Must be at the very top) ---
 st.set_page_config(
@@ -14,6 +15,24 @@ st.set_page_config(
 
 # Zmienna do spójnego koloru akcentu (dla config.toml lub ręcznego ustawienia)
 ACCENT_COLOR = "#B71C1C" 
+
+# --- FUNKCJE KONWERSJI DANYCH DO POBRANIA (POZA GŁÓWNĄ LOGIKĄ) ---
+
+@st.cache_data
+def convert_df_to_csv(df):
+    """Konwertuje DataFrame do stringa CSV z kodowaniem UTF-8."""
+    # Używamy separatora średnikowego (semicolon) dla lepszej kompatybilności z europejskimi ustawieniami Excela
+    return df.to_csv(index=False, sep=';').encode('utf-8')
+            
+@st.cache_data
+def convert_df_to_excel(df):
+    """Konwertuje DataFrame do bufora bajtów dla pliku Excel (.xlsx)."""
+    output = io.BytesIO()
+    # Używamy openpyxl jako domyślnego silnika do zapisu Excela
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='Erythrocyte_Analysis')
+    processed_data = output.getvalue()
+    return processed_data
 
 # --- TITLE & UPLOAD INSTRUCTIONS ---
 st.title("🔬 Erythrocyte Analysis App")
@@ -74,6 +93,7 @@ with col_button:
     st.write("") 
     try:
         response = requests.get(PUBLICATION_URL)
+        # POPRAWKA BŁĘDU: Zmieniono raise_content() na raise_for_status()
         response.raise_for_status()
         pdf_bytes = response.content
         
@@ -96,7 +116,11 @@ st.markdown("---")
 def get_erythrocyte_shape_factors(image, anomaly_threshold, min_axis_size):
     processed_image = image.copy()
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    _, thresh = cv2.threshold(gray, 100, 255, cv2.THRESH_BINARY_INV) 
+    
+    # ULEPSZENIE: Użycie progowania Otsu dla automatycznego doboru optymalnego progu
+    # Zapewnia to lepszą segmentację w przypadku nierównomiernego oświetlenia.
+    _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    
     contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
     shape_factors_data = []
@@ -154,9 +178,9 @@ def get_erythrocyte_shape_factors(image, anomaly_threshold, min_axis_size):
                         
                         minor_angle_rad = np.radians(orientation + 90)
                         minor_end_point_1 = (int(center[0] + minor_axis/2 * np.cos(minor_angle_rad)),
-                                             int(center[1] + minor_axis/2 * np.sin(minor_angle_rad)))
+                                             int(center[1] + minor_axis/2 * np.cos(minor_angle_rad)))
                         minor_end_point_2 = (int(center[0] - minor_axis/2 * np.cos(minor_angle_rad)),
-                                             int(center[1] - minor_axis/2 * np.sin(minor_angle_rad)))
+                                             int(center[1] - minor_axis/2 * np.cos(minor_angle_rad)))
                         cv2.line(processed_image, minor_end_point_1, minor_end_point_2, (255, 0, 0), 1)
                         
                         # Labeling the cell
@@ -182,7 +206,8 @@ def get_erythrocyte_shape_factors(image, anomaly_threshold, min_axis_size):
             except cv2.error:
                 continue 
 
-    return processed_image, shape_factors_data, anomalies_data
+    # Zmiana wartości zwracanych: dodanie binarnej maski dla podglądu diagnostycznego
+    return processed_image, shape_factors_data, anomalies_data, thresh
 
 
 # --- Streamlit UI ---
@@ -257,8 +282,8 @@ if run_button:
             st.error(f"❌ Error loading image: {e}")
 
     if image_to_process is not None:
-        # Pass both thresholds to the function
-        processed_img, shape_factors, anomalies = get_erythrocyte_shape_factors(
+        # POBRANIE WYNIKÓW: Zmieniono, aby przyjmować także binarną maskę
+        processed_img, shape_factors, anomalies, binary_mask = get_erythrocyte_shape_factors(
             image_to_process, anomaly_threshold_slider, min_axis_size_slider
         )
 
@@ -297,12 +322,15 @@ if run_button:
             
             # --- START: VISUAL IMPROVEMENT (Metrics and Image side-by-side) ---
             
-            col_img, col_metrics = st.columns([3, 2]) # Wide layout for better visual separation
+            # NOWA STRUKTURA KOLUMN:
+            # Lewa kolumna: Obraz przetworzony (3 jednostki szerokości)
+            # Prawa kolumna: Metryki (1 jednostka szerokości)
+            col_img, col_metrics = st.columns([3, 1])
 
             with col_img:
-                st.markdown("##### Processed Image")
+                st.markdown("##### Processed Image (Detected Cells)")
                 st.image(processed_img, channels="BGR")
-
+            
             with col_metrics:
                 if not df_normal.empty:
                     # Shape Factor and Ellipticity Metrics
@@ -348,6 +376,13 @@ if run_button:
                     st.metric(label="Total Cells Analyzed", value=len(shape_factors) + len(anomalies))
                 else:
                     st.info("No normal cells detected below the threshold.")
+
+            st.markdown("---")
+            
+            # WIDOK BINARNEJ MASKI ZOSTANIE WYŚWIETLONY PONIŻEJ OBU KOLUMN, NA PEŁNĄ SZEROKOŚĆ
+            st.markdown("##### Binary Mask (Detection Base)")
+            # Maska binarna jest w skali szarości, Streamlit musi wiedzieć, jak ją renderować
+            st.image(binary_mask, channels="GRAY", use_column_width=True) 
 
             st.markdown("---")
             # --- END: VISUAL IMPROVEMENT ---
@@ -490,6 +525,51 @@ if run_button:
             cols_to_show = [col for col in ordered_columns if col in df_display.columns]
 
             st.dataframe(df_display[cols_to_show], use_container_width=True)
+            
+            # --- START: DOWNLOAD BUTTONS (NOWOŚĆ) ---
+            
+            # Użycie średnika jako separatora CSV dla lepszej kompatybilności europejskiej
+            csv_data = convert_df_to_csv(df_display[cols_to_show])
+            excel_data = convert_df_to_excel(df_display[cols_to_show])
+            
+            st.markdown("---")
+            st.subheader("⬇️ Download Results")
+            col_download_excel, col_download_csv, col_download_pdf_placeholder = st.columns(3)
+            
+            with col_download_excel:
+                 st.download_button(
+                    label="Pobierz Dane (Excel)",
+                    data=excel_data,
+                    file_name='Erythrocyte_Data.xlsx',
+                    mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    use_container_width=True,
+                    help="Pobiera wszystkie szczegółowe dane w formacie Excel (.xlsx)."
+                )
+
+            with col_download_csv:
+                st.download_button(
+                    label="Pobierz Dane (CSV)",
+                    data=csv_data,
+                    file_name='Erythrocyte_Data.csv',
+                    mime='text/csv',
+                    use_container_width=True,
+                    help="Pobiera wszystkie szczegółowe dane w formacie tekstowym (.csv). Używa średnika jako separatora."
+                )
+
+            with col_download_pdf_placeholder:
+                # Placeholder dla Raportu PDF
+                st.download_button(
+                    label="Raport PDF (W Budowie)",
+                    data="Placeholder Content", # Puste dane jako placeholder
+                    file_name="Report_WIP.txt", 
+                    mime="text/plain",
+                    use_container_width=True,
+                    disabled=True,
+                    help="Generowanie kompleksowego raportu w formacie PDF jest w trakcie implementacji."
+                )
+
+            # --- END: DOWNLOAD BUTTONS ---
+
         else:
             st.warning("⚠️ No erythrocytes detected in the image based on contour analysis (check minimal axis size setting).")
 
