@@ -4,7 +4,7 @@ import numpy as np
 import requests
 import pandas as pd
 import matplotlib.pyplot as plt
-import io # Dodano dla obsługi konwersji do Excel/CSV w pamięci
+import io # Added for in-memory Excel/CSV conversion handling
 
 # --- Page settings (Must be at the very top) ---
 st.set_page_config(
@@ -13,22 +13,22 @@ st.set_page_config(
     layout="wide" # Use wide layout for professional look
 )
 
-# Zmienna do spójnego koloru akcentu (dla config.toml lub ręcznego ustawienia)
+# Variable for consistent accent color
 ACCENT_COLOR = "#B71C1C" 
 
-# --- FUNKCJE KONWERSJI DANYCH DO POBRANIA (POZA GŁÓWNĄ LOGIKĄ) ---
+# --- DATA CONVERSION FUNCTIONS FOR DOWNLOAD (OUTSIDE MAIN LOGIC) ---
 
 @st.cache_data
 def convert_df_to_csv(df):
-    """Konwertuje DataFrame do stringa CSV z kodowaniem UTF-8."""
-    # Używamy separatora średnikowego (semicolon) dla lepszej kompatybilności z europejskimi ustawieniami Excela
+    """Converts a DataFrame to a CSV string with UTF-8 encoding."""
+    # Using a semicolon separator for better compatibility with European Excel settings
     return df.to_csv(index=False, sep=';').encode('utf-8')
             
 @st.cache_data
 def convert_df_to_excel(df):
-    """Konwertuje DataFrame do bufora bajtów dla pliku Excel (.xlsx)."""
+    """Converts a DataFrame to a byte buffer for an Excel file (.xlsx)."""
     output = io.BytesIO()
-    # Używamy openpyxl jako domyślnego silnika do zapisu Excela
+    # Use openpyxl as the default engine for writing Excel
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         df.to_excel(writer, index=False, sheet_name='Erythrocyte_Analysis')
     processed_data = output.getvalue()
@@ -93,7 +93,7 @@ with col_button:
     st.write("") 
     try:
         response = requests.get(PUBLICATION_URL)
-        # POPRAWKA BŁĘDU: Zmieniono raise_content() na raise_for_status()
+        # BUG FIX: Changed raise_content() to raise_for_status()
         response.raise_for_status()
         pdf_bytes = response.content
         
@@ -117,8 +117,8 @@ def get_erythrocyte_shape_factors(image, anomaly_threshold, min_axis_size):
     processed_image = image.copy()
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     
-    # ULEPSZENIE: Użycie progowania Otsu dla automatycznego doboru optymalnego progu
-    # Zapewnia to lepszą segmentację w przypadku nierównomiernego oświetlenia.
+    # IMPROVEMENT: Using Otsu's thresholding for automatic selection of the optimal threshold
+    # This provides better segmentation in case of uneven illumination.
     _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
     
     contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -206,7 +206,7 @@ def get_erythrocyte_shape_factors(image, anomaly_threshold, min_axis_size):
             except cv2.error:
                 continue 
 
-    # Zmiana wartości zwracanych: dodanie binarnej maski dla podglądu diagnostycznego
+    # Changed return values: added binary mask for diagnostic preview
     return processed_image, shape_factors_data, anomalies_data, thresh
 
 
@@ -230,21 +230,20 @@ min_axis_size_slider = st.sidebar.slider(
     help="Minimum required length of the major and minor axes to consider a contour an erythrocyte (e.g., 50px)."
 )
 
-# 2. INPUT FOR CALIBRATION FACTOR (NOWOŚĆ)
+# 2. INPUT FOR CALIBRATION FACTOR (NEW)
 calibration_factor = st.sidebar.number_input(
     "Calibration Factor (µm per pixel)",
     min_value=0.0, 
     max_value=10.0,
     value=0.0, 
     step=0.01,
-    # Usunięto argument 'help'
 )
 
-# DODANY TEKST POD INPUTEM
+# ADDED TEXT BELOW INPUT
 st.sidebar.markdown(
     """
-    <small>Wprowadź współczynnik konwersji: 1 piksel = X mikrometrów (µm). 
-    Jeśli skala jest nieznana, pozostaw wartość **0.0**, aby użyć jednostek pikselowych (px).</small>
+    <small>Enter the conversion factor: 1 pixel = X micrometers (µm). 
+    If the scale is unknown, leave the value as **0.0** to use pixel units (px).</small>
     """,
     unsafe_allow_html=True
 )
@@ -282,23 +281,23 @@ if run_button:
             st.error(f"❌ Error loading image: {e}")
 
     if image_to_process is not None:
-        # POBRANIE WYNIKÓW: Zmieniono, aby przyjmować także binarną maskę
+        # GET RESULTS: Modified to also accept the binary mask
         processed_img, shape_factors, anomalies, binary_mask = get_erythrocyte_shape_factors(
             image_to_process, anomaly_threshold_slider, min_axis_size_slider
         )
 
-        # OBLICZENIA KALIBRACJI
+        # CALIBRATION CALCULATIONS
         def apply_calibration(df, factor):
-            # Jeśli współczynnik kalibracji wynosi 0, nie dodajemy kolumn mikrometrycznych.
+            # If the calibration factor is 0, do not add micrometer columns.
             if df.empty or factor == 0.0:
                 return df
             
-            # Przeliczanie długości (Axis, Perimeter)
+            # Recalculating lengths (Axis, Perimeter)
             df['Major Axis (µm)'] = df['Major Axis'] * factor
             df['Minor Axis (µm)'] = df['Minor Axis'] * factor
             df['Perimeter (µm)'] = df['Perimeter'] * factor
             
-            # Przeliczanie powierzchni (Area) - Kwadrat współczynnika
+            # Recalculating area (Area) - Square of the factor
             df['Area (µm²)'] = df['Area'] * (factor ** 2)
             
             return df
@@ -306,7 +305,7 @@ if run_button:
         df_normal = pd.DataFrame(shape_factors)
         df_anomalies = pd.DataFrame(anomalies)
 
-        # Kalibracja jest aplikowana tylko jeśli factor > 0.0
+        # Calibration is applied only if factor > 0.0
         df_normal = apply_calibration(df_normal, calibration_factor)
         df_anomalies = apply_calibration(df_anomalies, calibration_factor)
         
@@ -322,9 +321,9 @@ if run_button:
             
             # --- START: VISUAL IMPROVEMENT (Metrics and Image side-by-side) ---
             
-            # NOWA STRUKTURA KOLUMN:
-            # Lewa kolumna: Obraz przetworzony (3 jednostki szerokości)
-            # Prawa kolumna: Metryki (1 jednostka szerokości)
+            # NEW COLUMN STRUCTURE:
+            # Left column: Processed image (3 units wide)
+            # Right column: Metrics (1 unit wide)
             col_img, col_metrics = st.columns([3, 1])
 
             with col_img:
@@ -338,7 +337,7 @@ if run_button:
                     avg_ellipticity = df_normal['Ellipticity'].mean() 
                     std_sf = df_normal['Shape Factor'].std()
 
-                    # Ustawienie jednostek
+                    # Setting units
                     if calibration_factor > 0.0 and 'Area (µm²)' in df_normal.columns:
                         avg_major_um = df_normal['Major Axis (µm)'].mean()
                         avg_area_um2 = df_normal['Area (µm²)'].mean()
@@ -379,15 +378,16 @@ if run_button:
 
             st.markdown("---")
             
-            # WIDOK BINARNEJ MASKI ZOSTANIE WYŚWIETLONY PONIŻEJ OBU KOLUMN, NA PEŁNĄ SZEROKOŚĆ
+            # BINARY MASK VIEW WILL BE DISPLAYED BELOW BOTH COLUMNS, FULL WIDTH
             st.markdown("##### Binary Mask (Detection Base)")
-            # Maska binarna jest w skali szarości, Streamlit musi wiedzieć, jak ją renderować
-            st.image(binary_mask, channels="GRAY", use_column_width=True) 
+            # The binary mask is grayscale, Streamlit needs to know how to render it
+            # FIXED: Changed use_column_width=True to use_container_width=True
+            st.image(binary_mask, channels="GRAY", use_container_width=True) 
 
             st.markdown("---")
             # --- END: VISUAL IMPROVEMENT ---
 
-            # Zmienne dla wykresów, które uwzględniają jednostki µm
+            # Variables for charts that consider µm units
             if calibration_factor > 0.0 and 'Area (µm²)' in df_full.columns:
                 area_col_name = 'Area (µm²)'
                 major_axis_col_name = 'Major Axis (µm)'
@@ -395,7 +395,7 @@ if run_button:
                 area_unit = 'µm²'
                 length_unit = 'µm'
             else:
-                # Użycie pikseli, jeśli kalibracja wynosi 0 lub jest wyłączona
+                # Use pixels if calibration is 0 or disabled
                 area_col_name = 'Area'
                 major_axis_col_name = 'Major Axis'
                 perimeter_col_name = 'Perimeter'
@@ -482,7 +482,7 @@ if run_button:
             st.markdown("---")
             st.subheader("📋 Detailed Results Table")
             
-            # Tworzenie mapowania kolumn do wyświetlenia
+            # Creating column mapping for display
             column_mapping = {
                 "Erythrocyte Number": "Cell ID",
                 "Shape Factor": "SF (Major/Minor)",
@@ -490,20 +490,20 @@ if run_button:
                 "Classification": "Classification"
             }
             
-            # Dodanie kolumn pikselowych i mikrometrycznych w zależności od dostępności (czyli calibration_factor > 0.0)
+            # Adding pixel and micrometer columns depending on availability (i.e., calibration_factor > 0.0)
             if calibration_factor > 0.0 and 'Major Axis (µm)' in df_full.columns:
                 column_mapping.update({
                     'Major Axis (µm)': 'Major Axis (µm)',
                     'Minor Axis (µm)': 'Minor Axis (µm)',
                     'Area (µm²)': 'Area (µm²)',
                     'Perimeter (µm)': 'Perimeter (µm)',
-                    'Major Axis': 'Major Axis (px)', # Zachowujemy też wartości w px
+                    'Major Axis': 'Major Axis (px)', # Also keep px values
                     'Minor Axis': 'Minor Axis (px)',
                     'Area': 'Area (px²)',
                     'Perimeter': 'Perimeter (px)'
                 })
             else:
-                # Jeśli kalibracja wyłączona, pokazujemy tylko wartości w pikselach
+                # If calibration is disabled, only show pixel values
                 column_mapping.update({
                     'Major Axis': 'Major Axis (px)',
                     'Minor Axis': 'Minor Axis (px)',
@@ -511,24 +511,24 @@ if run_button:
                     'Perimeter': 'Perimeter (px)'
                 })
             
-            # Zmiana nazw kolumn i wybór odpowiedniej kolejności do wyświetlenia
+            # Renaming columns and selecting the appropriate order for display
             df_display = df_full.rename(columns=column_mapping)
             
-            # Definicja kolejności kolumn (priorytet dla µm, jeśli są dostępne)
+            # Defining column order (priority for µm, if available)
             ordered_columns = [
                 'Cell ID', 'Classification', 'SF (Major/Minor)', 'Ellipticity',
                 'Major Axis (µm)', 'Minor Axis (µm)', 'Area (µm²)', 'Perimeter (µm)',
                 'Major Axis (px)', 'Minor Axis (px)', 'Area (px²)', 'Perimeter (px)'
             ]
             
-            # Filtrowanie kolumn, które faktycznie istnieją po kalibracji/bez niej
+            # Filtering columns that actually exist after calibration/without it
             cols_to_show = [col for col in ordered_columns if col in df_display.columns]
 
             st.dataframe(df_display[cols_to_show], use_container_width=True)
             
-            # --- START: DOWNLOAD BUTTONS (NOWOŚĆ) ---
+            # --- START: DOWNLOAD BUTTONS (NEW) ---
             
-            # Użycie średnika jako separatora CSV dla lepszej kompatybilności europejskiej
+            # Using semicolon as CSV separator for better European compatibility
             csv_data = convert_df_to_csv(df_display[cols_to_show])
             excel_data = convert_df_to_excel(df_display[cols_to_show])
             
@@ -538,37 +538,61 @@ if run_button:
             
             with col_download_excel:
                  st.download_button(
-                    label="Pobierz Dane (Excel)",
+                    label="Download Data (Excel)",
                     data=excel_data,
                     file_name='Erythrocyte_Data.xlsx',
                     mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                     use_container_width=True,
-                    help="Pobiera wszystkie szczegółowe dane w formacie Excel (.xlsx)."
+                    help="Downloads all detailed data in Excel format (.xlsx)."
                 )
 
             with col_download_csv:
                 st.download_button(
-                    label="Pobierz Dane (CSV)",
+                    label="Download Data (CSV)",
                     data=csv_data,
                     file_name='Erythrocyte_Data.csv',
                     mime='text/csv',
                     use_container_width=True,
-                    help="Pobiera wszystkie szczegółowe dane w formacie tekstowym (.csv). Używa średnika jako separatora."
+                    help="Downloads all detailed data in text format (.csv). Uses a semicolon as a separator."
                 )
 
             with col_download_pdf_placeholder:
-                # Placeholder dla Raportu PDF
+                # Placeholder for PDF Report
                 st.download_button(
-                    label="Raport PDF (W Budowie)",
-                    data="Placeholder Content", # Puste dane jako placeholder
+                    label="PDF Report (WIP)",
+                    data="Placeholder Content", # Empty data as placeholder
                     file_name="Report_WIP.txt", 
                     mime="text/plain",
                     use_container_width=True,
                     disabled=True,
-                    help="Generowanie kompleksowego raportu w formacie PDF jest w trakcie implementacji."
+                    help="Generating a comprehensive report in PDF format is currently under implementation."
                 )
 
             # --- END: DOWNLOAD BUTTONS ---
+            
+            
+            # --- START: ABOUT ME SECTION (New) ---
+            st.markdown("---")
+            st.subheader("🧑‍💻 About Me / Author")
+            st.markdown(
+                """
+                <p style="text-align: justify;">
+                This application was developed as a tool for quantitative analysis of red blood cell (erythrocyte) morphology 
+                based on image processing methods (OpenCV). 
+                The underlying methodology is inspired by research on the effect of various compounds 
+                on erythrocyte deformation, a key indicator of cell health and blood conditions. 
+                </p>
+                
+                **Contact / Source Code:**
+                - **GitHub:** [slastrzelec/01_erytro](https://github.com/slastrzelec/01_erytro) 
+                - **LinkedIn:** [Sławomir Strzelec](https://www.linkedin.com/in/s%C5%82awomir-strzelec-b32794169/)
+                <br>
+                **Disclaimer:** This is a scientific research and demonstration tool, not a medical diagnostic device.
+                """,
+                unsafe_allow_html=True
+            )
+            # --- END: ABOUT ME SECTION ---
+
 
         else:
             st.warning("⚠️ No erythrocytes detected in the image based on contour analysis (check minimal axis size setting).")
